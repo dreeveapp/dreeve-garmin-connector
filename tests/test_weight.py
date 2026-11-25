@@ -176,8 +176,13 @@ def test_shutdown_preserves_weight_window_and_resumes_without_redownloading_acti
     client.on_download = stopping.append
     weights = Mock(spec=WeightSync)
     sync = Sync(
-        harness.sync_config, harness.ledger, client, harness.watch_folder, harness.clock,
-        should_stop=lambda: bool(stopping), weight_sync=weights,
+        harness.sync_config,
+        harness.ledger,
+        client,
+        harness.watch_folder,
+        harness.clock,
+        should_stop=lambda: bool(stopping),
+        weight_sync=weights,
     )
     assert sync.run_once().delivered == 1
     weights.run_once.assert_not_called()
@@ -203,9 +208,7 @@ def test_shutdown_preserves_weight_window_and_resumes_without_redownloading_acti
         (datetime(2026, 11, 25, 16, tzinfo=UTC), "2026-11-26"),  # Morning in Tokyo.
     ],
 )
-def test_zero_lookback_imports_local_days_on_both_sides_of_utc(
-    tmp_path: Path, now: datetime, local_date: str
-) -> None:
+def test_zero_lookback_imports_local_days_on_both_sides_of_utc(tmp_path: Path, now: datetime, local_date: str) -> None:
     harness = harness_for(tmp_path, FakeGarminClient(), LOOKBACK_DAYS="0")
     harness.clock.advance((now - harness.clock.now()).total_seconds())
     harness.ledger.mark_successful_sync(now)
@@ -218,16 +221,22 @@ def test_zero_lookback_imports_local_days_on_both_sides_of_utc(
 
 
 def test_local_date_margin_is_preserved_across_backfill_pages() -> None:
-    api = WeightApi({"dateWeightList": [
-        {"calendarDate": "2026-10-31", "weight": 70125},
-        {"calendarDate": "2026-11-30", "weight": 71000},
-        {"calendarDate": "2026-12-01", "weight": 70500},
-    ]})
+    api = WeightApi(
+        {
+            "dateWeightList": [
+                {"calendarDate": "2026-10-31", "weight": 70125},
+                {"calendarDate": "2026-11-30", "weight": 71000},
+                {"calendarDate": "2026-12-01", "weight": 70500},
+            ]
+        }
+    )
     destination = Destination()
     WeightSync(api, destination).run_once(Window(date(2026, 11, 1), date(2026, 11, 30)))
     assert api.weight_requests == [("2026-10-31", "2026-11-29"), ("2026-11-30", "2026-12-01")]
     assert [weight["on"] for batch in destination.deliveries for weight in batch] == [
-        "2026-10-31", "2026-11-30", "2026-12-01",
+        "2026-10-31",
+        "2026-11-30",
+        "2026-12-01",
     ]
 
 
