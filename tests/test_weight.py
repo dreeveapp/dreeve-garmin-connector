@@ -1,13 +1,16 @@
-from datetime import date
+from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
 
 import pytest
 
+from dreeve_garmin_connector.ledger import LEDGER_FILENAME, ActivityStatus, Ledger
+from dreeve_garmin_connector.sync import Sync
 from dreeve_garmin_connector.weight import DreeveWeightClient, WeightSync, WeightSyncError, latest_daily_weights
 from dreeve_garmin_connector.window import Window
 from tests.stubs import FakeGarminClient, StubGarminApi
-from tests.test_sync import harness_for
+from tests.test_sync import ARCHIVE, RIDE, RUN, harness_for
 
 WINDOW = Window(date(2026, 11, 24), date(2026, 11, 25))
 
@@ -122,7 +125,7 @@ def test_sync_delivers_daily_weights_without_activity_downloads() -> None:
     )
     destination = Destination()
     WeightSync(api, destination).run_once(WINDOW)
-    assert api.weight_requests == [("2026-11-24", "2026-11-25")]
+    assert api.weight_requests == [("2026-11-23", "2026-11-26")]
     assert destination.deliveries == [[{"on": "2026-11-25", "weightKg": 70.125}]]
     assert api.downloads == []
 
@@ -158,6 +161,74 @@ def test_weight_failure_does_not_advance_the_successful_sync_window(tmp_path: An
     with pytest.raises(WeightSyncError):
         harness.sync.run_once()
     assert harness.ledger.last_successful_sync is None
+
+
+@pytest.mark.parametrize("previous", [None, datetime(2026, 7, 15, tzinfo=UTC)])
+def test_shutdown_preserves_weight_window_and_resumes_without_redownloading_activities(
+    tmp_path: Path, previous: datetime | None
+) -> None:
+    client = FakeGarminClient(activities=(RIDE, RUN), archives={"111": ARCHIVE, "222": ARCHIVE})
+    harness = harness_for(tmp_path, client)
+    if previous is not None:
+        harness.ledger.mark_successful_sync(previous)
+        harness.ledger.flush()
+    stopping: list[str] = []
+    client.on_download = stopping.append
+    weights = Mock(spec=WeightSync)
+    sync = Sync(
+        harness.sync_config, harness.ledger, client, harness.watch_folder, harness.clock,
+        should_stop=lambda: bool(stopping), weight_sync=weights,
+    )
+    assert sync.run_once().delivered == 1
+    weights.run_once.assert_not_called()
+    stored = Ledger.load(harness.state_dir / LEDGER_FILENAME)
+    assert stored.last_successful_sync == previous
+    delivered = stored.entry("111")
+    pending = stored.entry("222")
+    assert delivered is not None and delivered.status is ActivityStatus.DELIVERED
+    assert pending is not None and pending.status is ActivityStatus.PENDING
+
+    resumed = Sync(harness.sync_config, stored, client, harness.watch_folder, harness.clock, weight_sync=weights)
+    resumed.run_once()
+    weights.run_once.assert_called_once()
+    assert weights.run_once.call_args.args[0].start == (date(2026, 7, 1) if previous is None else date(2026, 7, 8))
+    assert client.downloaded == ["111", "222"]
+    assert Ledger.load(harness.state_dir / LEDGER_FILENAME).last_successful_sync == harness.clock.now()
+
+
+@pytest.mark.parametrize(
+    ("now", "local_date"),
+    [
+        (datetime(2026, 11, 26, 4, tzinfo=UTC), "2026-11-25"),  # Evening in Los Angeles.
+        (datetime(2026, 11, 25, 16, tzinfo=UTC), "2026-11-26"),  # Morning in Tokyo.
+    ],
+)
+def test_zero_lookback_imports_local_days_on_both_sides_of_utc(
+    tmp_path: Path, now: datetime, local_date: str
+) -> None:
+    harness = harness_for(tmp_path, FakeGarminClient(), LOOKBACK_DAYS="0")
+    harness.clock.advance((now - harness.clock.now()).total_seconds())
+    harness.ledger.mark_successful_sync(now)
+    api = WeightApi({"dateWeightList": [{"calendarDate": local_date, "weight": 70125}]})
+    destination = Destination()
+    harness.sync._weight_sync = WeightSync(api, destination)
+    harness.sync.run_once()
+    assert destination.deliveries == [[{"on": local_date, "weightKg": 70.125}]]
+    assert api.weight_requests[0][0] <= local_date <= api.weight_requests[0][1]
+
+
+def test_local_date_margin_is_preserved_across_backfill_pages() -> None:
+    api = WeightApi({"dateWeightList": [
+        {"calendarDate": "2026-10-31", "weight": 70125},
+        {"calendarDate": "2026-11-30", "weight": 71000},
+        {"calendarDate": "2026-12-01", "weight": 70500},
+    ]})
+    destination = Destination()
+    WeightSync(api, destination).run_once(Window(date(2026, 11, 1), date(2026, 11, 30)))
+    assert api.weight_requests == [("2026-10-31", "2026-11-29"), ("2026-11-30", "2026-12-01")]
+    assert [weight["on"] for batch in destination.deliveries for weight in batch] == [
+        "2026-10-31", "2026-11-30", "2026-12-01",
+    ]
 
 
 def test_http_client_uses_bearer_auth_and_posts_kilograms() -> None:

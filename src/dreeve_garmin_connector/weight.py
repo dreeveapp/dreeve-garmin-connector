@@ -5,7 +5,7 @@ import logging
 import math
 import urllib.error
 import urllib.request
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Protocol
 
 from dreeve_garmin_connector.garmin import GarminApi, GarminError, translated_errors
@@ -84,6 +84,13 @@ class WeightSync:
     def run_once(self, window: Window) -> None:
         if not self._destination.is_enabled():
             return
+        # Activity windows use UTC, while weigh-ins are keyed by Garmin's local calendar date.
+        # Cover both adjacent dates, including when LOOKBACK_DAYS is zero, without assuming
+        # that the connector's timezone is the athlete's timezone.
+        window = Window(
+            window.start - timedelta(days=1) if window.start > date.min else date.min,
+            window.end + timedelta(days=1) if window.end < date.max else date.max,
+        )
         imported = 0
         for page in chunked(window):
             with translated_errors("reading Garmin weigh-ins"):

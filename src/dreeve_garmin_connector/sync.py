@@ -145,14 +145,20 @@ class Sync:
             self._flush()
             raise
 
-        if self._weight_sync is not None and not self._should_stop():
+        weights_interrupted = self._weight_sync is not None and self._should_stop()
+        if self._weight_sync is not None and not weights_interrupted:
             try:
                 self._weight_sync.run_once(window)
             except GarminError:
                 self._flush()
                 raise
 
-        self._ledger.mark_successful_sync(started_at)
+        if weights_interrupted:
+            # Activities have their own ledger entries; weights only have this checkpoint.
+            # Keep the previous window until weights have actually been processed.
+            logger.info("Stopping before weight sync; keeping the previous successful sync checkpoint")
+        else:
+            self._ledger.mark_successful_sync(started_at)
         self._flush()
 
         return CycleResult(

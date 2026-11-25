@@ -39,9 +39,12 @@ This requires a Dreeve version offering `/api/v1/athlete/weights/garmin`.
 Weights run in the same activity cycle, using the same polling interval, Garmin
 session, first-run date and lookback window. No new activities are needed to sync
 new weights. The latest measurement for each Garmin calendar day is sent in kg.
+Weight requests include one adjacent calendar day on each side of the activity
+window to cover local Garmin dates in every timezone, even with `LOOKBACK_DAYS=0`.
 Dreeve retains manual entries and gives them priority over Garmin for the same day.
 Turning the switch off stops weight requests and preserves imported history.
 
 Leaving these variables unset preserves activity-only behavior. Dry runs never
-write weights. A failed weight delivery leaves the sync window unadvanced so the
+write weights. A failed weight delivery, or a shutdown before weights are processed,
+leaves the sync window unadvanced so the
 measurements can be retried; completed activity downloads remain recorded.
