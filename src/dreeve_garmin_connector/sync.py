@@ -26,10 +26,12 @@ from dreeve_garmin_connector.garmin import (
     AuthenticationFailed,
     ConnectionFailed,
     GarminClient,
+    GarminError,
     NoActivityFile,
     RateLimited,
 )
 from dreeve_garmin_connector.ledger import ActivityStatus, Ledger, LedgerEntry
+from dreeve_garmin_connector.weight import WeightSync
 from dreeve_garmin_connector.window import Window, chunked, incremental_window, sync_start
 
 logger = logging.getLogger(__name__)
@@ -74,6 +76,7 @@ class Sync:
         watch_folder: WatchFolder,
         clock: Clock,
         should_stop: Callable[[], bool] = lambda: False,
+        weight_sync: WeightSync | None = None,
     ) -> None:
         self._config = config
         self._ledger = ledger
@@ -81,6 +84,7 @@ class Sync:
         self._watch_folder = watch_folder
         self._clock = clock
         self._should_stop = should_stop
+        self._weight_sync = weight_sync
 
     @property
     def ledger(self) -> Ledger:
@@ -140,6 +144,13 @@ class Sync:
             # The ledger still holds everything learned up to here; losing it would mean downloading it again.
             self._flush()
             raise
+
+        if self._weight_sync is not None and not self._should_stop():
+            try:
+                self._weight_sync.run_once(window)
+            except GarminError:
+                self._flush()
+                raise
 
         self._ledger.mark_successful_sync(started_at)
         self._flush()

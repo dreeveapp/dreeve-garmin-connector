@@ -15,6 +15,27 @@ MINIMAL_ENV = {"GARMIN_EMAIL": "rider@example.com"}
 NOW = datetime(2026, 7, 25, 12, 0, tzinfo=UTC)
 
 
+def test_optional_dreeve_weight_destination() -> None:
+    config = Config.from_env({**MINIMAL_ENV, "DREEVE_URL": "http://dreeve:8080/", "DREEVE_API_KEY": "secret"})
+    assert config.dreeve_url == "http://dreeve:8080"
+    assert config.dreeve_api_key == "secret"
+    assert Config.from_env(MINIMAL_ENV).dreeve_url is None
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"DREEVE_URL": "http://dreeve:8080"},
+        {"DREEVE_API_KEY": "secret"},
+        {"DREEVE_URL": "file:///tmp/dreeve", "DREEVE_API_KEY": "secret"},
+        {"DREEVE_URL": "https://user:pass@example.com", "DREEVE_API_KEY": "secret"},
+    ],
+)
+def test_invalid_dreeve_destinations_are_rejected(values: dict[str, str]) -> None:
+    with pytest.raises(InvalidConfiguration):
+        Config.from_env({**MINIMAL_ENV, **values})
+
+
 def test_it_applies_the_documented_defaults() -> None:
     config = Config.from_env(MINIMAL_ENV)
 

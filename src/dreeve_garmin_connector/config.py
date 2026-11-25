@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
+from urllib.parse import urlsplit
 
 SECONDS_PER_UNIT = {"h": 3600, "d": 86400}
 RELATIVE_SINCE_PATTERN = re.compile(r"^-?(?P<amount>\d+)(?P<unit>[hd])$")
@@ -85,10 +86,31 @@ class Config:
     log_level: str
     log_format: LogFormat
     dry_run: bool
+    dreeve_url: str | None = None
+    dreeve_api_key: str | None = None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "Config":
         reader = _EnvReader(env)
+
+        dreeve_url = env.get("DREEVE_URL", "").strip().rstrip("/") or None
+        dreeve_api_key = reader.optional_secret("DREEVE_API_KEY")
+        if bool(dreeve_url) != bool(dreeve_api_key):
+            reader.errors.append("DREEVE_URL and DREEVE_API_KEY (or DREEVE_API_KEY_FILE) must be configured together.")
+        if dreeve_url:
+            try:
+                parsed = urlsplit(dreeve_url)
+                if (
+                    parsed.scheme not in ("http", "https")
+                    or not parsed.hostname
+                    or parsed.username
+                    or parsed.password
+                    or parsed.query
+                    or parsed.fragment
+                ):
+                    raise ValueError
+            except ValueError:
+                reader.errors.append("DREEVE_URL must be an HTTP(S) URL without credentials, query or fragment.")
 
         password = reader.optional_secret("GARMIN_PASSWORD")
         allow_password_login = reader.flag("ALLOW_PASSWORD_LOGIN", default=False)
@@ -121,6 +143,8 @@ class Config:
             log_level=reader.log_level("LOG_LEVEL", default="info"),
             log_format=reader.choice("LOG_FORMAT", LogFormat, default=LogFormat.TEXT),
             dry_run=reader.flag("DRY_RUN", default=False),
+            dreeve_url=dreeve_url,
+            dreeve_api_key=dreeve_api_key,
         )
 
         if reader.errors:

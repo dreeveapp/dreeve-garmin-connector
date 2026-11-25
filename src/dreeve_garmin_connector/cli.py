@@ -22,6 +22,7 @@ from dreeve_garmin_connector.logging_ import Secrets, configure_logging
 from dreeve_garmin_connector.loop import SyncLoop, heartbeat_path
 from dreeve_garmin_connector.status import UNHEALTHY_AFTER_CYCLES, Status, StatusServer
 from dreeve_garmin_connector.sync import Sync, SystemClock
+from dreeve_garmin_connector.weight import DreeveWeightClient, WeightSync
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -62,7 +63,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if getattr(arguments, "dry_run", False):
         config = replace(config, dry_run=True)
 
-    secrets = Secrets([config.garmin_email, config.garmin_password])
+    secrets = Secrets([config.garmin_email, config.garmin_password, config.dreeve_api_key])
     configure_logging(config.log_level, config.log_format, secrets)
 
     # argparse has already rejected anything that is not a registered command.
@@ -191,6 +192,9 @@ def build_sync(config: Config, secrets: Secrets, should_stop: Callable[[], bool]
     watch_folder.prepare()
 
     session = Authenticator(config, secrets).resume()
+    weight_sync = None
+    if config.dreeve_url is not None and config.dreeve_api_key is not None:
+        weight_sync = WeightSync(session, DreeveWeightClient(config.dreeve_url, config.dreeve_api_key))
 
     return Sync(
         config=config,
@@ -198,6 +202,7 @@ def build_sync(config: Config, secrets: Secrets, should_stop: Callable[[], bool]
         client=GarminConnectClient(session),
         watch_folder=watch_folder,
         clock=SystemClock(),
+        weight_sync=weight_sync,
         should_stop=should_stop,
     )
 

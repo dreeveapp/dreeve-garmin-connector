@@ -23,6 +23,7 @@ class StubGarminApi:
         self._error = error
         self.listings: list[tuple[str, str | None, str | None, str | None]] = []
         self.downloads: list[tuple[str, Any]] = []
+        self.weight_requests: list[tuple[str, str]] = []
 
     def get_activities_by_date(
         self,
@@ -43,6 +44,10 @@ class StubGarminApi:
             raise self._error
 
         return self._archive
+
+    def get_weigh_ins(self, startdate: str, enddate: str) -> dict[str, Any]:
+        self.weight_requests.append((startdate, enddate))
+        return {"dateWeightList": []}
 
 
 class StubGarminSession(StubGarminApi):

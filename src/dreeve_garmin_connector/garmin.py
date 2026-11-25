@@ -91,6 +91,8 @@ class GarminApi(Protocol):
 
     def download_activity(self, activity_id: str, dl_fmt: Any = ...) -> bytes: ...
 
+    def get_weigh_ins(self, startdate: str, enddate: str) -> dict[str, Any]: ...
+
 
 @runtime_checkable
 class GarminClient(Protocol):
