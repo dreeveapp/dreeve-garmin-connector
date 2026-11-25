@@ -70,6 +70,40 @@ def test_invalid_and_out_of_window_measurements_are_ignored() -> None:
     )
 
 
+def test_range_response_uses_latest_measurement_in_daily_weight_summaries() -> None:
+    response = {
+        "dailyWeightSummaries": [
+            {
+                "summaryDate": "2026-11-25",
+                "numOfWeightEntries": 2,
+                "latestWeight": {"calendarDate": "2026-11-25", "date": 2000, "weight": 70125},
+                "allWeightMetrics": [
+                    {"calendarDate": "2026-11-25", "date": 2000, "weight": 70125},
+                    {"calendarDate": "2026-11-25", "date": 1000, "weight": 71000},
+                ],
+            }
+        ],
+        "totalAverage": {"weight": 70562.5},
+    }
+    assert latest_daily_weights(response, WINDOW) == [{"on": "2026-11-25", "weightKg": 70.125}]
+
+
+def test_range_response_accepts_latest_weight_with_summary_calendar_date() -> None:
+    response = {
+        "dailyWeightSummaries": [{"summaryDate": "2026-11-25", "latestWeight": {"date": 2000, "weight": 70125}}]
+    }
+    assert latest_daily_weights(response, WINDOW) == [{"on": "2026-11-25", "weightKg": 70.125}]
+
+
+def test_empty_range_response_contains_no_weights() -> None:
+    assert latest_daily_weights({"dailyWeightSummaries": []}, WINDOW) == []
+
+
+def test_unknown_weight_response_is_an_error_instead_of_silent_success() -> None:
+    with pytest.raises(WeightSyncError, match="unrecognized"):
+        latest_daily_weights({"unexpected": []}, WINDOW)
+
+
 def test_disabled_sync_does_not_read_garmin_weight() -> None:
     api = WeightApi({})
     destination = Destination(enabled=False)
@@ -79,7 +113,13 @@ def test_disabled_sync_does_not_read_garmin_weight() -> None:
 
 
 def test_sync_delivers_daily_weights_without_activity_downloads() -> None:
-    api = WeightApi({"dateWeightList": [{"calendarDate": "2026-11-25", "weight": 70125}]})
+    api = WeightApi(
+        {
+            "dailyWeightSummaries": [
+                {"summaryDate": "2026-11-25", "allWeightMetrics": [{"calendarDate": "2026-11-25", "weight": 70125}]}
+            ]
+        }
+    )
     destination = Destination()
     WeightSync(api, destination).run_once(WINDOW)
     assert api.weight_requests == [("2026-11-24", "2026-11-25")]

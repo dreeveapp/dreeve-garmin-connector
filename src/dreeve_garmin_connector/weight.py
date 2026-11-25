@@ -97,7 +97,24 @@ class WeightSync:
 
 def latest_daily_weights(response: dict[str, Any], window: Window) -> list[dict[str, str | float]]:
     """Garmin returns grams and local calendar dates; the latest measurement wins within each day."""
-    entries = response.get("dateWeightList", [])
+    entries = response.get("dateWeightList")
+    if entries is None:
+        summaries = response.get("dailyWeightSummaries")
+        if not isinstance(summaries, list):
+            raise WeightSyncError("Garmin returned an unrecognized weigh-in response.")
+        entries = []
+        for summary in summaries:
+            if not isinstance(summary, dict):
+                raise WeightSyncError("Garmin returned an invalid daily weight summary.")
+            measurements = summary.get("allWeightMetrics")
+            if measurements is None:
+                last = summary.get("latestWeight")
+                measurements = [] if last is None else [last]
+            if not isinstance(measurements, list):
+                raise WeightSyncError("Garmin returned an invalid daily weigh-in list.")
+            for measurement in measurements:
+                if isinstance(measurement, dict):
+                    entries.append({"calendarDate": summary.get("summaryDate"), **measurement})
     if not isinstance(entries, list):
         raise WeightSyncError("Garmin returned an invalid weigh-in list.")
     latest: dict[str, tuple[float, float]] = {}
